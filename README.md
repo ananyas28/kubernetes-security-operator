@@ -1,135 +1,337 @@
-# projects
-// TODO(user): Add simple overview of use/purpose
+# Kubernetes Security & Observability Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes Operator built with **Go, Kubebuilder, and controller-runtime** to manage security-monitoring configuration through a custom Kubernetes resource.
 
-## Getting Started
+The operator introduces a `SecurityMonitor` Custom Resource that allows security-monitoring settings to be defined declaratively. The controller continuously observes the desired state and creates or updates a Kubernetes `ConfigMap` containing the configured monitoring settings.
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+## Architecture
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
-
-```sh
-make docker-build docker-push IMG=<some-registry>/projects:tag
+```
+                    Kubernetes Cluster
+                           │
+                           ▼
+                 ┌───────────────────┐
+                 │  SecurityMonitor   │
+                 │    Custom Resource │
+                 └─────────┬─────────┘
+                           │
+                           ▼
+                 ┌───────────────────┐
+                 │ SecurityMonitor   │
+                 │    Controller     │
+                 └─────────┬─────────┘
+                           │
+                    Reconciliation
+                           │
+                           ▼
+                 ┌───────────────────┐
+                 │  ConfigMap        │
+                 │ security-monitor- │
+                 │      config       │
+                 └───────────────────┘
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+The controller follows the Kubernetes reconciliation pattern: it watches the `SecurityMonitor` resource and works to make the cluster state match the desired configuration.
 
-**Install the CRDs into the cluster:**
+## Features
 
-```sh
+* Custom `SecurityMonitor` Kubernetes resource
+* Declarative security-monitoring configuration
+* Configurable monitoring enable/disable state
+* Configurable minimum severity:
+
+  * `low`
+  * `medium`
+  * `high`
+  * `critical`
+* Configurable security events through `alertOn`
+* Automatic ConfigMap creation
+* Automatic ConfigMap updates when the `SecurityMonitor` changes
+* Kubernetes status conditions
+* RBAC permissions generated through Kubebuilder markers
+* Controller logging
+* Prometheus-compatible controller metrics configuration
+* Unit/controller tests using Kubernetes EnvTest
+* Docker-based operator image
+* Kubernetes deployment manifests generated with Kustomize
+* GitHub Actions workflows for testing and linting
+
+## Custom Resource
+
+Example:
+
+```yaml
+apiVersion: security.example.com/v1
+kind: SecurityMonitor
+metadata:
+  name: security-monitor
+spec:
+  enabled: true
+  severity: high
+  alertOn:
+    - authentication-failure
+    - forbidden-request
+    - container-restart
+```
+
+Apply it with:
+
+```bash
+kubectl apply -f config/samples/security_v1_securitymonitor.yaml
+```
+
+Check the resource:
+
+```bash
+kubectl get securitymonitors
+```
+
+Check the generated ConfigMap:
+
+```bash
+kubectl get configmap security-monitor-config -o yaml
+```
+
+The resulting configuration contains values such as:
+
+```yaml
+data:
+  enabled: "true"
+  severity: high
+  alertOn: authentication-failure,forbidden-request,container-restart
+```
+
+## How Reconciliation Works
+
+When a `SecurityMonitor` is created or modified, the controller:
+
+1. Retrieves the `SecurityMonitor` resource.
+2. Reads its desired configuration.
+3. Checks whether the corresponding ConfigMap exists.
+4. Creates the ConfigMap if it does not exist.
+5. Updates the ConfigMap when the desired configuration changes.
+6. Updates the `SecurityMonitor` status condition.
+7. Continues observing the resource for future changes.
+
+For example, changing:
+
+```yaml
+severity: high
+```
+
+to:
+
+```yaml
+severity: critical
+```
+
+causes the controller to reconcile the resource and update the ConfigMap accordingly.
+
+## Technology Stack
+
+| Technology         | Purpose                                  |
+| ------------------ | ---------------------------------------- |
+| Go                 | Operator implementation                  |
+| Kubebuilder        | Kubernetes Operator scaffolding and APIs |
+| controller-runtime | Controller and reconciliation framework  |
+| Kubernetes         | Runtime platform                         |
+| Docker             | Containerization                         |
+| Kustomize          | Kubernetes manifest management           |
+| EnvTest            | Controller testing                       |
+| Prometheus         | Controller metrics integration           |
+| GitHub Actions     | CI workflows                             |
+
+## Project Structure
+
+```text
+kubernetes-security-operator/
+├── api/
+│   └── v1/
+│       └── securitymonitor_types.go
+├── cmd/
+│   └── main.go
+├── config/
+│   ├── crd/
+│   ├── default/
+│   ├── manager/
+│   ├── prometheus/
+│   ├── rbac/
+│   └── samples/
+├── internal/
+│   └── controller/
+│       ├── securitymonitor_controller.go
+│       └── securitymonitor_controller_test.go
+├── test/
+│   └── e2e/
+├── Dockerfile
+├── Makefile
+├── PROJECT
+├── go.mod
+└── README.md
+```
+
+## Prerequisites
+
+* Go 1.27+
+* Docker
+* kubectl
+* A Kubernetes cluster
+
+The project can be tested locally using Docker Desktop's Kubernetes cluster or another Kubernetes environment.
+
+## Run Tests
+
+Run the complete Go test suite:
+
+```bash
+go test ./...
+```
+
+The controller tests use Kubernetes EnvTest to test reconciliation behavior against a Kubernetes API environment.
+
+## Run Locally
+
+To run the controller locally against your current Kubernetes context:
+
+```bash
+make run
+```
+
+Make sure your `kubectl` context points to the intended cluster before starting the controller.
+
+Check the current context:
+
+```bash
+kubectl config current-context
+```
+
+## Build the Operator
+
+Build the manager binary:
+
+```bash
+make build
+```
+
+Build the Docker image:
+
+```bash
+make docker-build IMG=<registry>/kubernetes-security-operator:tag
+```
+
+Push the image to a container registry:
+
+```bash
+make docker-push IMG=<registry>/kubernetes-security-operator:tag
+```
+
+## Deploy to Kubernetes
+
+Install the CRDs:
+
+```bash
 make install
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+Deploy the controller:
 
-```sh
-make deploy IMG=<some-registry>/projects:tag
+```bash
+make deploy IMG=<registry>/kubernetes-security-operator:tag
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+Verify the deployment:
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
+```bash
+kubectl get pods -n projects-system
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+Create the sample `SecurityMonitor`:
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
+```bash
+kubectl apply -f config/samples/security_v1_securitymonitor.yaml
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+Verify:
 
-```sh
+```bash
+kubectl get securitymonitors
+kubectl get configmaps
+```
+
+## Remove the Deployment
+
+Delete the sample resource:
+
+```bash
+kubectl delete -f config/samples/security_v1_securitymonitor.yaml
+```
+
+Uninstall the CRDs:
+
+```bash
 make uninstall
 ```
 
-**UnDeploy the controller from the cluster:**
+Remove the controller deployment:
 
-```sh
+```bash
 make undeploy
 ```
 
-## Project Distribution
+## Observability
 
-Following the options to release and provide this solution to the users.
+The operator exposes controller metrics through the Kubernetes monitoring configuration generated by Kubebuilder.
 
-### By providing a bundle with all YAML files
+The project also includes Prometheus-related Kubernetes manifests under:
 
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/projects:tag
+```text
+config/prometheus/
 ```
 
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
+These provide the foundation for monitoring controller-runtime metrics and can be connected to a Prometheus/Grafana observability stack in a Kubernetes environment.
 
-2. Using the installer
+## Security Design
 
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
+The operator uses Kubernetes RBAC to follow the principle of granting the controller only the permissions required for its resources.
 
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/projects/<tag or branch>/dist/install.yaml
+The controller has permissions for:
+
+* `SecurityMonitor` resources
+* `SecurityMonitor` status
+* `SecurityMonitor` finalizers
+* ConfigMaps
+
+RBAC rules are defined using Kubebuilder annotations in the controller source and generated into Kubernetes manifests.
+
+## CI
+
+GitHub Actions workflows are included under:
+
+```text
+.github/workflows/
 ```
 
-### By providing a Helm Chart
+They provide automated project checks including:
 
-1. Build the chart using the optional helm plugin
+* Go tests
+* Linting
+* End-to-end test workflow
 
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
+## Future Enhancements
 
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
+Potential extensions include:
 
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+* Integration with actual security-event sources
+* Alert delivery through external notification systems
+* Prometheus alert rules for security events
+* Grafana security dashboards
+* Loki-based security-event log collection
+* Additional Kubernetes security policies
+* Automated container-image publishing
+* Expanded end-to-end security scenarios
 
 ## License
 
 Copyright 2026.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+Licensed under the Apache License, Version 2.0.
