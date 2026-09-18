@@ -1,0 +1,11 @@
+apiVersion: security.example.com/v1
+kind: SecurityMonitor
+metadata:
+  name: security-monitor
+spec:
+  enabled: true
+  severity: high
+  alertOn:
+    - authentication-failure
+    - forbidden-request
+    - container-restart
