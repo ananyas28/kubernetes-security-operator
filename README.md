@@ -1,62 +1,61 @@
 # Kubernetes Security & Observability Operator
 
-A Kubernetes Operator built with **Go, Kubebuilder, and controller-runtime** to manage security-monitoring configuration through a custom Kubernetes resource.
+A Kubernetes Operator built with **Go, Kubebuilder, and controller-runtime** for managing security-monitoring configuration and exposing operator observability metrics through **Prometheus and Grafana**.
 
-The operator introduces a `SecurityMonitor` Custom Resource that allows security-monitoring settings to be defined declaratively. The controller continuously observes the desired state and creates or updates a Kubernetes `ConfigMap` containing the configured monitoring settings.
+The project demonstrates Kubernetes-native controller development, custom resources, reconciliation, RBAC, testing, metrics, monitoring, and deployment.
 
 ## Architecture
 
+```text
+                    ┌──────────────────────────┐
+                    │    SecurityMonitor CR    │
+                    │                          │
+                    │  enabled                 │
+                    │  severity                │
+                    │  alertOn                 │
+                    └────────────┬─────────────┘
+                                 │
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ SecurityMonitor           │
+                    │ Controller                │
+                    │                           │
+                    │ Go + controller-runtime   │
+                    └────────────┬─────────────┘
+                                 │
+                         Reconciliation
+                                 │
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ Kubernetes ConfigMap      │
+                    │ security-monitor-config   │
+                    └──────────────────────────┘
+
+                    ┌──────────────────────────┐
+                    │ Controller Metrics        │
+                    │                           │
+                    │ securitymonitor_*         │
+                    └────────────┬─────────────┘
+                                 │
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ Prometheus ServiceMonitor │
+                    └────────────┬─────────────┘
+                                 │
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ Prometheus                │
+                    └────────────┬─────────────┘
+                                 │
+                                 ▼
+                    ┌──────────────────────────┐
+                    │ Grafana                   │
+                    └──────────────────────────┘
 ```
-                    Kubernetes Cluster
-                           │
-                           ▼
-                 ┌───────────────────┐
-                 │  SecurityMonitor   │
-                 │    Custom Resource │
-                 └─────────┬─────────┘
-                           │
-                           ▼
-                 ┌───────────────────┐
-                 │ SecurityMonitor   │
-                 │    Controller     │
-                 └─────────┬─────────┘
-                           │
-                    Reconciliation
-                           │
-                           ▼
-                 ┌───────────────────┐
-                 │  ConfigMap        │
-                 │ security-monitor- │
-                 │      config       │
-                 └───────────────────┘
-```
 
-The controller follows the Kubernetes reconciliation pattern: it watches the `SecurityMonitor` resource and works to make the cluster state match the desired configuration.
+## What the Operator Does
 
-## Features
-
-* Custom `SecurityMonitor` Kubernetes resource
-* Declarative security-monitoring configuration
-* Configurable monitoring enable/disable state
-* Configurable minimum severity:
-
-  * `low`
-  * `medium`
-  * `high`
-  * `critical`
-* Configurable security events through `alertOn`
-* Automatic ConfigMap creation
-* Automatic ConfigMap updates when the `SecurityMonitor` changes
-* Kubernetes status conditions
-* RBAC permissions generated through Kubebuilder markers
-* Controller logging
-* Prometheus-compatible controller metrics configuration
-* Unit/controller tests using Kubernetes EnvTest
-* Docker-based operator image
-* Kubernetes deployment manifests generated with Kustomize
-* GitHub Actions workflows for testing and linting
-
-## Custom Resource
+The operator introduces a custom Kubernetes resource called `SecurityMonitor`.
 
 Example:
 
@@ -74,264 +73,241 @@ spec:
     - container-restart
 ```
 
-Apply it with:
+The controller watches `SecurityMonitor` resources and reconciles their desired configuration into Kubernetes resources.
 
-```bash
-kubectl apply -f config/samples/security_v1_securitymonitor.yaml
+Currently, the controller creates and synchronizes a ConfigMap containing the monitoring configuration.
+
+## Implemented Features
+
+* Custom `SecurityMonitor` Kubernetes CRD
+* Go-based Kubernetes controller
+* Kubebuilder and controller-runtime
+* Kubernetes reconciliation loop
+* Configurable monitoring severity
+* Configurable security-event types through `alertOn`
+* ConfigMap reconciliation
+* Kubernetes RBAC configuration
+* Controller and reconciliation tests
+* Prometheus custom metrics
+* Prometheus `ServiceMonitor` integration
+* Grafana monitoring
+* Docker Desktop Kubernetes deployment
+* Kubernetes-native observability
+
+## Custom Prometheus Metrics
+
+The operator exposes custom metrics through the controller-runtime metrics endpoint.
+
+### Reconciliation Count
+
+```text
+securitymonitor_reconcile_total
 ```
 
-Check the resource:
+Tracks the total number of `SecurityMonitor` reconciliations.
 
-```bash
-kubectl get securitymonitors
+### Reconciliation Errors
+
+```text
+securitymonitor_reconcile_errors_total
 ```
 
-Check the generated ConfigMap:
+Tracks the total number of reconciliation errors.
 
-```bash
-kubectl get configmap security-monitor-config -o yaml
+The metrics were verified through Prometheus and Grafana.
+
+Example:
+
+```promql
+securitymonitor_reconcile_total
 ```
 
-The resulting configuration contains values such as:
-
-```yaml
-data:
-  enabled: "true"
-  severity: high
-  alertOn: authentication-failure,forbidden-request,container-restart
+```promql
+securitymonitor_reconcile_errors_total
 ```
 
-## How Reconciliation Works
+## Monitoring Architecture
 
-When a `SecurityMonitor` is created or modified, the controller:
+The operator exposes its metrics through a Kubernetes Service.
 
-1. Retrieves the `SecurityMonitor` resource.
-2. Reads its desired configuration.
-3. Checks whether the corresponding ConfigMap exists.
-4. Creates the ConfigMap if it does not exist.
-5. Updates the ConfigMap when the desired configuration changes.
-6. Updates the `SecurityMonitor` status condition.
-7. Continues observing the resource for future changes.
+Prometheus discovers the operator using a `ServiceMonitor`.
 
-For example, changing:
-
-```yaml
-severity: high
+```text
+SecurityMonitor Controller
+          │
+          ▼
+   Metrics Endpoint
+          │
+          ▼
+     ServiceMonitor
+          │
+          ▼
+      Prometheus
+          │
+          ▼
+       Grafana
 ```
 
-to:
-
-```yaml
-severity: critical
-```
-
-causes the controller to reconcile the resource and update the ConfigMap accordingly.
+The monitoring stack is deployed using the Prometheus Community `kube-prometheus-stack` Helm chart.
 
 ## Technology Stack
 
-| Technology         | Purpose                                  |
-| ------------------ | ---------------------------------------- |
-| Go                 | Operator implementation                  |
-| Kubebuilder        | Kubernetes Operator scaffolding and APIs |
-| controller-runtime | Controller and reconciliation framework  |
-| Kubernetes         | Runtime platform                         |
-| Docker             | Containerization                         |
-| Kustomize          | Kubernetes manifest management           |
-| EnvTest            | Controller testing                       |
-| Prometheus         | Controller metrics integration           |
-| GitHub Actions     | CI workflows                             |
+| Technology         | Purpose                                 |
+| ------------------ | --------------------------------------- |
+| Go                 | Operator implementation                 |
+| Kubernetes         | Container orchestration platform        |
+| Kubebuilder        | Operator scaffolding and CRD generation |
+| controller-runtime | Controller and reconciliation framework |
+| Docker             | Container runtime                       |
+| Prometheus         | Metrics collection                      |
+| ServiceMonitor     | Prometheus service discovery            |
+| Grafana            | Metrics visualization                   |
+| Helm               | Monitoring stack deployment             |
+| EnvTest            | Controller testing                      |
 
 ## Project Structure
 
 ```text
 kubernetes-security-operator/
+│
 ├── api/
 │   └── v1/
 │       └── securitymonitor_types.go
+│
 ├── cmd/
 │   └── main.go
-├── config/
-│   ├── crd/
-│   ├── default/
-│   ├── manager/
-│   ├── prometheus/
-│   ├── rbac/
-│   └── samples/
+│
 ├── internal/
 │   └── controller/
 │       ├── securitymonitor_controller.go
 │       └── securitymonitor_controller_test.go
+│
+├── config/
+│   ├── crd/
+│   ├── rbac/
+│   ├── manager/
+│   ├── default/
+│   ├── samples/
+│   └── monitoring-servicemonitor.yaml
+│
 ├── test/
-│   └── e2e/
+│   └── utils/
+│
 ├── Dockerfile
 ├── Makefile
-├── PROJECT
 ├── go.mod
+├── go.sum
 └── README.md
 ```
 
-## Prerequisites
+## Running the Operator
 
-* Go 1.27+
+### Prerequisites
+
+* Go
 * Docker
+* Kubernetes
 * kubectl
-* A Kubernetes cluster
+* Kubebuilder
 
-The project can be tested locally using Docker Desktop's Kubernetes cluster or another Kubernetes environment.
-
-## Run Tests
-
-Run the complete Go test suite:
+### Run Tests
 
 ```bash
 go test ./...
 ```
 
-The controller tests use Kubernetes EnvTest to test reconciliation behavior against a Kubernetes API environment.
-
-## Run Locally
-
-To run the controller locally against your current Kubernetes context:
+### Generate Kubernetes Manifests
 
 ```bash
-make run
+make manifests
 ```
 
-Make sure your `kubectl` context points to the intended cluster before starting the controller.
-
-Check the current context:
+### Generate Code
 
 ```bash
-kubectl config current-context
+make generate
 ```
 
-## Build the Operator
-
-Build the manager binary:
+### Build the Container
 
 ```bash
-make build
+make docker-build IMG=security-operator:dev
 ```
 
-Build the Docker image:
+### Deploy
 
-```bash
-make docker-build IMG=<registry>/kubernetes-security-operator:tag
-```
+The generated Kubernetes manifests under `config/` can be used to deploy the operator to a Kubernetes cluster.
 
-Push the image to a container registry:
+## Local Kubernetes Environment
 
-```bash
-make docker-push IMG=<registry>/kubernetes-security-operator:tag
-```
+The project was developed and tested using:
 
-## Deploy to Kubernetes
+* Docker Desktop Kubernetes
+* Kubernetes 1.34.x
+* Ubuntu/WSL2 development environment
 
-Install the CRDs:
-
-```bash
-make install
-```
-
-Deploy the controller:
-
-```bash
-make deploy IMG=<registry>/kubernetes-security-operator:tag
-```
-
-Verify the deployment:
+The operator was deployed to a local Kubernetes cluster and verified through:
 
 ```bash
 kubectl get pods -n projects-system
 ```
 
-Create the sample `SecurityMonitor`:
-
-```bash
-kubectl apply -f config/samples/security_v1_securitymonitor.yaml
-```
-
-Verify:
-
 ```bash
 kubectl get securitymonitors
+```
+
+```bash
 kubectl get configmaps
 ```
 
-## Remove the Deployment
+## Monitoring Verification
 
-Delete the sample resource:
+The operator metrics endpoint was verified directly from the Kubernetes cluster.
 
-```bash
-kubectl delete -f config/samples/security_v1_securitymonitor.yaml
-```
+Prometheus successfully discovered the operator through the `ServiceMonitor`.
 
-Uninstall the CRDs:
+The custom metrics were then queried successfully from Grafana.
 
-```bash
-make uninstall
-```
-
-Remove the controller deployment:
-
-```bash
-make undeploy
-```
-
-## Observability
-
-The operator exposes controller metrics through the Kubernetes monitoring configuration generated by Kubebuilder.
-
-The project also includes Prometheus-related Kubernetes manifests under:
+Verified metrics include:
 
 ```text
-config/prometheus/
+securitymonitor_reconcile_total
+securitymonitor_reconcile_errors_total
 ```
 
-These provide the foundation for monitoring controller-runtime metrics and can be connected to a Prometheus/Grafana observability stack in a Kubernetes environment.
-
-## Security Design
-
-The operator uses Kubernetes RBAC to follow the principle of granting the controller only the permissions required for its resources.
-
-The controller has permissions for:
-
-* `SecurityMonitor` resources
-* `SecurityMonitor` status
-* `SecurityMonitor` finalizers
-* ConfigMaps
-
-RBAC rules are defined using Kubebuilder annotations in the controller source and generated into Kubernetes manifests.
-
-## CI
-
-GitHub Actions workflows are included under:
+At the time of verification, the reconciliation error metric returned:
 
 ```text
-.github/workflows/
+0
 ```
 
-They provide automated project checks including:
+## Testing
 
-* Go tests
-* Linting
-* End-to-end test workflow
+Controller tests are implemented using controller-runtime's testing framework and Kubernetes EnvTest.
 
-## Future Enhancements
+Run:
 
-Potential extensions include:
+```bash
+go test ./...
+```
 
-* Integration with actual security-event sources
-* Alert delivery through external notification systems
-* Prometheus alert rules for security events
-* Grafana security dashboards
-* Loki-based security-event log collection
-* Additional Kubernetes security policies
-* Automated container-image publishing
-* Expanded end-to-end security scenarios
+The test suite covers controller reconciliation behavior and Kubernetes resource handling.
 
-## License
+## Future Improvements
 
-Copyright 2026.
+Planned improvements include:
 
-Licensed under the Apache License, Version 2.0.
+* Kubernetes audit-event processing
+* Security-event detection
+* Alert generation for configured security events
+* Prometheus alerting rules
+* Grafana security-focused dashboard
+* Additional controller metrics
+* Integration with Kubernetes security tools
+* Automated CI/CD for container builds and deployments
+
+## Author
+
+Ananya S.
+
+Built as a hands-on Kubernetes, DevOps, observability, and security engineering project.
