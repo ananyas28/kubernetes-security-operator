@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,9 +30,34 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	securityv1 "github.com/ananyas28/kubernetes-security-operator/api/v1"
 )
+
+var (
+	SecurityMonitorReconcileTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "securitymonitor_reconcile_total",
+			Help: "Total number of SecurityMonitor reconciliations.",
+		},
+	)
+
+	SecurityMonitorReconcileErrors = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "securitymonitor_reconcile_errors_total",
+			Help: "Total number of SecurityMonitor reconciliation errors.",
+		},
+	)
+)
+
+func init() {
+	metrics.Registry.MustRegister(
+		SecurityMonitorReconcileTotal,
+		SecurityMonitorReconcileErrors,
+	)
+
+}
 
 // SecurityMonitorReconciler reconciles a SecurityMonitor object
 type SecurityMonitorReconciler struct {
@@ -52,7 +79,13 @@ type SecurityMonitorReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
-func (r *SecurityMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *SecurityMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {
+	SecurityMonitorReconcileTotal.Inc()
+	defer func() {
+		if err != nil {
+			SecurityMonitorReconcileErrors.Inc()
+		}
+	}()
 	logger := logf.FromContext(ctx)
 
 	var securityMonitor securityv1.SecurityMonitor
@@ -75,7 +108,7 @@ func (r *SecurityMonitorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	configMap := &corev1.ConfigMap{}
 
-	err := r.Get(
+	err = r.Get(
 		ctx,
 		client.ObjectKey{
 			Name:      configMapName,

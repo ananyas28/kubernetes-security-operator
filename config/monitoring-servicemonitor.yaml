@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: security-operator
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - projects-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: projects
+      control-plane: controller-manager
+  endpoints:
+    - port: https
+      path: /metrics
+      scheme: http
+      interval: 15s
